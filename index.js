@@ -35,7 +35,6 @@ app.use(function(err,req,res,next){
   console.log('ErrorCatch', err);
   if(process.env.NODE_ENV === "production"){
     res.status(500).send({ desc: err.desc || "Something Went Wrong" });
-    logger.error(JSON.stringify(log));
   }else{
     res.status(500).send({ desc: err.desc, stack: err.stack, message: err.message });
   }

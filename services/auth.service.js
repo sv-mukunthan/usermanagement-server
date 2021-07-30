@@ -20,11 +20,18 @@ module.exports = {
     return user;
   },
   updateUser: async (id, data) => {
-    let user = await User.findByIdAndUpdate({_id: id}, data);
-    return user;
+    let user = await User.updateOne({_id: id}, data);
+    if(user.n === 0) {
+      return false;
+    }
+    return true;
   },
   resetPass: async (id) => {
     let user = await User.findOne({reset_password_hash: id});
     return user;
+  },
+  userList: async(data) => {
+    const users = await User.list({ ...data, ...{ query: {} } });
+    return users;
   }
 }

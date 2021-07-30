@@ -3,9 +3,9 @@ const bcrypt = require('bcryptjs');
 const path = require('path');
 const mongoose = require("mongoose");
 const { getUser } = require('../services/auth.service');
-const { uploadFile } = require('../helper/function.helper');
 const sendMail = require('../helper/mail.helper');
 const saltRound = 10;
+const _ = require('lodash');
 
 module.exports = {
 
@@ -29,11 +29,18 @@ module.exports = {
   login: async(req, res, next) => {
     try {
       let user = await getUser(undefined, req.body.email);
+      console.log("user", user)
       if(user && user.password) {
         let isTrue = await bcrypt.compare(req.body.password, user.password);
         if(isTrue) {
           let token = await authService.generateToken(user._id, user.email);
-          res.send({status: "success", message: "Login successfully", token, data: user})
+          res.send({status: "success", message: "Login successfully", token, data: user});
+          let id = mongoose.Types.ObjectId();
+          let sesson = {
+            sesson_id: id,
+            logged_in: new Date(),
+          }
+          await authService.updateUser(user._id, { sesson_id: id, $push: { sesson } });
         } else {
           res.status(422).send({status: "failed", message: "Incorrect password"});
         }
@@ -53,9 +60,9 @@ module.exports = {
         let reset_password_hash = mongoose.Types.ObjectId();
         let url = process.env.SERVER_URL + '/user/reset_password'+reset_password_hash;
         let html = `<p>Hi ${user.name} here is your reset password <a href=${url}>hash</a></p>`;
-        await sendMail(user.email, "Reset Password","", html);
+        // await sendMail(user.email, "Reset Password","", html);
         await authService.updateUser(user._id, {reset_password_hash: reset_password_hash});
-        res.send({status: "success", message: "Reset password hash send your email"});
+        res.send({status: "success", message: "Reset password hash send your email", hash: reset_password_hash });
       } else {
         res.status(422).send({status: "failed", message: "User not found"});
       }
@@ -70,7 +77,6 @@ module.exports = {
       let user = await authService.resetPass(req.body.reset_password_hash);
       if(user) {
         let hash = await bcrypt.hash(req.body.password, saltRound);
-        console.log("hash", hash);
         await authService.updateUser(user._id, {password: hash});
         res.send({status: "success", message: "Password reset successfully"});
       } else {
@@ -84,11 +90,73 @@ module.exports = {
 
   updateUser: async(req, res, next) => {
     try {
-      await authService.updateUser(req.body.user_id, req.body);
-      let user = await authService.getUser(req.body.user_id, undefined);
-      res.send({status: "success", message: "User updated", data: user});
+      const updated = await authService.updateUser(req.body.user_id, req.body);
+      if(updated) {
+        let user = await authService.getUser(req.body.user_id, undefined);
+        res.send({status: "success", message: "User updated", data: user});
+      } else {
+        res.status(422).send({ status: "failed", message: "Failed to update user" });
+      }
     } catch (err) {
+      err.desc = "Failed to update user";
+      next(err);
+    }
+  },
+
+  userList: async(req, res, next) => {
+    try {
+      const users = await authService.userList(req.body);
+      res.send({ status: "success", message: "User list fetched", data: users });
+    } catch(err) {
+      err.desc = "Failed to get users list";
+      next(err);
+    }
+  },
+
+  getUserById: async(req, res, next) => {
+    try {
+      const user = await authService.getUser(req.params.id, undefined);
+      if(user) {
+        res.send({ status: "success", message: "User detail fetched", data: user });
+      } else {
+        res.status(422).send({ status: "failed", message: "Failed to get user details"})
+      }
+    } catch(err) {
+      err.desc = "Failed to get user details";
+      next(err);
+    }
+  },
+
+  getUserByToken: async(req, res, next) => {
+    try {
+      const user = await authService.getUser(req.decoded.id, undefined);
+      if(user) {
+        res.send({ status: "success", message: "User detail fetched", data: user });
+      } else {
+        res.status(422).send({ status: "failed", message: "Failed to get user details"})
+      }
+    } catch(err) {
       err.desc = "Failed to get user";
+      next(err);
+    }
+  },
+
+  logout: async(req, res, next) => {
+    try {
+      const user = await authService.getUser(req.decoded.id, undefined);
+      if(user) {
+        let sesson = user.sesson;
+        let index = await _.findIndex(sesson, { sesson_id: user.sesson_id });
+        if(index !== -1) {
+          sesson[index].logged_out = new Date();
+          await authService.updateUser(user._id, { sesson_id: null, sesson });
+        }
+        res.send({ status: "success", message: "User logged out" });
+      } else {
+        res.status(422).send({ status: "failed", message: "Failed to logout"})
+      }
+    } catch(err) {
+      err.desc = "Failed to logout";
       next(err);
     }
   }
